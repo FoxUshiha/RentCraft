@@ -2112,79 +2112,256 @@ public class CoinRent extends JavaPlugin implements Listener {
         }
     }
     // ====================================================
-    // EVENT LISTENERS (mantidos idênticos)
+    // EVENT LISTENERS (mantidos idênticos + novos para detecção de itens em contêineres)
     // ====================================================
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         Inventory inv = event.getInventory();
-        if (!(inv.getHolder() instanceof RentInventoryHolder holder)) return;
-        if (!holder.getViewerUuid().equals(player.getUniqueId())) {
-            event.setCancelled(true);
-            player.closeInventory();
-            player.sendMessage(ChatColor.RED + "This inventory does not belong to you!");
-            return;
-        }
-        RentInventoryHolder.Type type = holder.getType();
-        int slot = event.getSlot();
-        int page = holder.getPage();
-        if (type == RentInventoryHolder.Type.CANCEL_MENU) {
-            event.setCancelled(true);
-            if (slot == 45) {
-                player.openInventory(buildMainMenu(player));
+        // Se for nosso GUI, trata normalmente
+        if (inv.getHolder() instanceof RentInventoryHolder holder) {
+            if (!holder.getViewerUuid().equals(player.getUniqueId())) {
+                event.setCancelled(true);
+                player.closeInventory();
+                player.sendMessage(ChatColor.RED + "This inventory does not belong to you!");
                 return;
             }
-            if (slot < 45) {
-                ItemStack clicked = event.getCurrentItem();
-                if (clicked != null && clicked.getType() != Material.AIR) {
-                    String rentalId = extractRentalId(clicked);
-                    if (rentalId != null) {
-                        cancelRentalByRenter(player, rentalId);
-                        player.openInventory(buildCancelMenu(player));
-                    }
-                }
-            }
-            return;
-        }
-        event.setCancelled(true);
-        if (event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) return;
-        switch (type) {
-            case MAIN_MENU:
-                if (slot == 11) {
-                    player.openInventory(buildMyRentalsMenu(player, 0));
-                } else if (slot == 13) {
-                    player.openInventory(buildCategoriesMenu(player));
-                } else if (slot == 15) {
-                    player.openInventory(buildGlobalRentalsMenu(player, 0));
-                } else if (slot == 22) {
-                    player.openInventory(buildCancelMenu(player));
-                }
-                break;
-            case CATEGORIES_MENU:
-                if (slot == 49) {
+            RentInventoryHolder.Type type = holder.getType();
+            int slot = event.getSlot();
+            int page = holder.getPage();
+            if (type == RentInventoryHolder.Type.CANCEL_MENU) {
+                event.setCancelled(true);
+                if (slot == 45) {
                     player.openInventory(buildMainMenu(player));
                     return;
                 }
-                int categorySlot = -1;
-                int[] categorySlots = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23};
-                for (int i = 0; i < categorySlots.length; i++) {
-                    if (slot == categorySlots[i]) {
-                        categorySlot = i;
+                if (slot < 45) {
+                    ItemStack clicked = event.getCurrentItem();
+                    if (clicked != null && clicked.getType() != Material.AIR) {
+                        String rentalId = extractRentalId(clicked);
+                        if (rentalId != null) {
+                            cancelRentalByRenter(player, rentalId);
+                            player.openInventory(buildCancelMenu(player));
+                        }
+                    }
+                }
+                return;
+            }
+            event.setCancelled(true);
+            if (event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) return;
+            switch (type) {
+                case MAIN_MENU:
+                    if (slot == 11) {
+                        player.openInventory(buildMyRentalsMenu(player, 0));
+                    } else if (slot == 13) {
+                        player.openInventory(buildCategoriesMenu(player));
+                    } else if (slot == 15) {
+                        player.openInventory(buildGlobalRentalsMenu(player, 0));
+                    } else if (slot == 22) {
+                        player.openInventory(buildCancelMenu(player));
+                    }
+                    break;
+                case CATEGORIES_MENU:
+                    if (slot == 49) {
+                        player.openInventory(buildMainMenu(player));
+                        return;
+                    }
+                    int categorySlot = -1;
+                    int[] categorySlots = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23};
+                    for (int i = 0; i < categorySlots.length; i++) {
+                        if (slot == categorySlots[i]) {
+                            categorySlot = i;
+                            break;
+                        }
+                    }
+                    if (categorySlot >= 0 && categorySlot < ItemCategory.values().length) {
+                        ItemCategory category = ItemCategory.values()[categorySlot];
+                        player.openInventory(buildCategoryRentalsMenu(player, category, 0));
+                    }
+                    break;
+                case CATEGORY_RENTALS:
+                case MY_RENTALS:
+                case GLOBAL_RENTALS:
+                    handleRentalClick(player, holder, slot, page, event.getCurrentItem());
+                    break;
+            }
+            return;
+        }
+
+        // --- NOVO: Detecta movimentação de item alugado para contêineres ---
+        Inventory clickedInv = event.getClickedInventory();
+        if (clickedInv != null && !(clickedInv instanceof PlayerInventory)) {
+            ItemStack current = event.getCurrentItem();
+            ItemStack cursor = event.getCursor();
+            if (current != null && isRentalItem(current)) {
+                boolean movingToContainer = false;
+                switch (event.getAction()) {
+                    case MOVE_TO_OTHER_INVENTORY:
+                    case PICKUP_ALL:
+                    case PICKUP_HALF:
+                    case PICKUP_SOME:
+                    case PICKUP_ONE:
+                    case COLLECT_TO_CURSOR:
+                        movingToContainer = true;
+                        break;
+                    default:
+                        break;
+                }
+                if (movingToContainer) {
+                    event.setCancelled(true);
+                    handleRentalItemMoved(player, current, clickedInv, event.getSlot(), true);
+                }
+            } else if (cursor != null && isRentalItem(cursor)) {
+                event.setCancelled(true);
+                handleRentalItemMoved(player, cursor, clickedInv, event.getSlot(), true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        // Se for nosso GUI, cancela (mantido original)
+        if (event.getInventory().getHolder() instanceof RentInventoryHolder) {
+            event.setCancelled(true);
+            return;
+        }
+        // Se estiver arrastando um item alugado para slots de contêiner, cancela
+        if (event.getCursor() != null && isRentalItem(event.getCursor())) {
+            boolean containerDragged = false;
+            for (int slot : event.getRawSlots()) {
+                Inventory inv = event.getView().getInventory(slot);
+                if (inv != null && !(inv instanceof PlayerInventory)) {
+                    containerDragged = true;
+                    break;
+                }
+            }
+            if (containerDragged) {
+                event.setCancelled(true);
+                handleRentalItemMoved(player, event.getCursor(), null, -1, true);
+                player.setItemOnCursor(null);
+                player.updateInventory();
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+        ItemStack item = event.getItem();
+        if (item != null && isRentalItem(item)) {
+            event.setCancelled(true);
+            // Remove o item da origem (hoppers, etc.)
+            Inventory source = event.getSource();
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    for (int i = 0; i < source.getSize(); i++) {
+                        ItemStack it = source.getItem(i);
+                        if (it != null && isRentalItem(it) && it.isSimilar(item)) {
+                            source.setItem(i, null);
+                            break;
+                        }
+                    }
+                    String rentalId = getRentalId(item);
+                    if (rentalId != null) {
+                        ActiveRental rental = activeRentals.get(rentalId);
+                        if (rental != null) {
+                            returnItemToShop(rental, true);
+                        }
+                    }
+                }
+            }.runTask(this);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) return;
+        Inventory inv = event.getInventory();
+        if (inv.getType() == InventoryType.PLAYER) return;
+        scanAndHandleRentalItems(inv, player);
+    }
+
+    // Helper para tratar item alugado movido para contêiner
+    private void handleRentalItemMoved(Player player, ItemStack item, Inventory container, int slot, boolean fromPlayer) {
+        if (fromPlayer) {
+            if (slot >= 0 && slot < player.getInventory().getSize()) {
+                player.getInventory().setItem(slot, null);
+            } else {
+                for (int i = 0; i < player.getInventory().getSize(); i++) {
+                    ItemStack it = player.getInventory().getItem(i);
+                    if (it != null && isRentalItem(it) && it.isSimilar(item)) {
+                        player.getInventory().setItem(i, null);
                         break;
                     }
                 }
-                if (categorySlot >= 0 && categorySlot < ItemCategory.values().length) {
-                    ItemCategory category = ItemCategory.values()[categorySlot];
-                    player.openInventory(buildCategoryRentalsMenu(player, category, 0));
+            }
+        } else {
+            if (container != null && slot >= 0 && slot < container.getSize()) {
+                container.setItem(slot, null);
+            } else if (container != null) {
+                for (int i = 0; i < container.getSize(); i++) {
+                    ItemStack it = container.getItem(i);
+                    if (it != null && isRentalItem(it) && it.isSimilar(item)) {
+                        container.setItem(i, null);
+                        break;
+                    }
                 }
-                break;
-            case CATEGORY_RENTALS:
-            case MY_RENTALS:
-            case GLOBAL_RENTALS:
-                handleRentalClick(player, holder, slot, page, event.getCurrentItem());
-                break;
+            }
         }
+
+        String rentalId = getRentalId(item);
+        if (rentalId != null) {
+            ActiveRental rental = activeRentals.get(rentalId);
+            if (rental != null) {
+                returnItemToShop(rental, true);
+                player.sendMessage(ChatColor.YELLOW + "Your rental item has been returned to the shop because you tried to store it!");
+            } else {
+                player.sendMessage(ChatColor.RED + "Invalid rental item! It has been removed.");
+            }
+        } else {
+            player.sendMessage(ChatColor.RED + "Invalid rental item! It has been removed.");
+        }
+
+        player.updateInventory();
     }
+
+    // Escaneia um inventário e remove itens alugados (devolvendo à loja ou deletando)
+    private void scanAndHandleRentalItems(Inventory inv, Player player) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                boolean modified = false;
+                for (int i = 0; i < inv.getSize(); i++) {
+                    ItemStack item = inv.getItem(i);
+                    if (item != null && isRentalItem(item)) {
+                        String rentalId = getRentalId(item);
+                        if (rentalId != null) {
+                            ActiveRental rental = activeRentals.get(rentalId);
+                            if (rental != null) {
+                                returnItemToShop(rental, true);
+                                player.sendMessage(ChatColor.YELLOW + "A rental item was found in a container and has been returned to the shop.");
+                            } else {
+                                inv.setItem(i, null);
+                                player.sendMessage(ChatColor.RED + "An invalid rental item was found and removed.");
+                            }
+                        } else {
+                            inv.setItem(i, null);
+                            player.sendMessage(ChatColor.RED + "An invalid rental item was found and removed.");
+                        }
+                        modified = true;
+                    }
+                }
+                if (modified) {
+                    player.updateInventory();
+                }
+            }
+        }.runTaskAsynchronously(this);
+    }
+
+    // ====================================================
+    // HANDLER PARA CLICKS NOS GUI (já existentes)
+    // ====================================================
     private void handleRentalClick(Player player, RentInventoryHolder holder, int slot,
                                     int page, ItemStack clickedItem) {
         if (slot == 49) {
@@ -2238,6 +2415,7 @@ public class CoinRent extends JavaPlugin implements Listener {
             rentItem(player, rental);
         }
     }
+
     private String extractRentalId(ItemStack item) {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) return null;
         for (String line : item.getItemMeta().getLore()) {
@@ -2248,6 +2426,7 @@ public class CoinRent extends JavaPlugin implements Listener {
         }
         return null;
     }
+
     private void reopenPage(Player player, ItemCategory category, int page, RentInventoryHolder.Type type) {
         switch (type) {
             case MY_RENTALS:
@@ -2263,6 +2442,7 @@ public class CoinRent extends JavaPlugin implements Listener {
                 break;
         }
     }
+
     private List<RentalItem> getFilteredItems(Player player, ItemCategory category, RentInventoryHolder.Type type) {
         if (type == RentInventoryHolder.Type.MY_RENTALS) {
             return rentalsData.rentals.stream()
@@ -2283,12 +2463,10 @@ public class CoinRent extends JavaPlugin implements Listener {
                 .sorted((a, b) -> Long.compare(b.listedAt, a.listedAt))
                 .collect(Collectors.toList());
     }
-    @EventHandler
-    public void onInventoryDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof RentInventoryHolder) {
-            event.setCancelled(true);
-        }
-    }
+
+    // ====================================================
+    // OUTROS EVENTOS EXISTENTES (mantidos inalterados)
+    // ====================================================
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
         if (event.getInventory().getHolder() instanceof RentInventoryHolder) {
