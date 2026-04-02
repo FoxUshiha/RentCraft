@@ -1,0 +1,23 @@
+name: CoinRent
+version: 1.5
+main: com.foxsrv.coinrent.CoinRent
+api-version: 1.20
+depend: [CoinCard]
+softdepend: [Vault]
+author: FoxSRV
+description: Rent system for CoinCard plugin - Rent items per hour
+
+commands:
+  crent:
+    description: Main CoinRent command
+    usage: /crent
+    aliases: [coinrent, rentshop]
+    permission: coinrent.use
+
+permissions:
+  coinrent.use:
+    description: Allows using /crent command
+    default: true
+  coinrent.admin:
+    description: Allows admin commands
+    default: op
