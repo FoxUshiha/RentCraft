@@ -2188,7 +2188,7 @@ public class CoinRent extends JavaPlugin implements Listener {
             return;
         }
 
-        // --- NOVO: Detecta movimentação de item alugado para contêineres ---
+        // --- PROTEÇÃO PARA CONTÊINERES (BAUS, ETC) MAS NUNCA NOS MENUS DO PLUGIN ---
         Inventory clickedInv = event.getClickedInventory();
         if (clickedInv != null && !(clickedInv instanceof PlayerInventory)) {
             ItemStack current = event.getCurrentItem();
@@ -2221,7 +2221,7 @@ public class CoinRent extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryDrag(InventoryDragEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        // Se for nosso GUI, cancela (mantido original)
+        // Se for nosso GUI, cancela e não interfere
         if (event.getInventory().getHolder() instanceof RentInventoryHolder) {
             event.setCancelled(true);
             return;
@@ -2231,7 +2231,7 @@ public class CoinRent extends JavaPlugin implements Listener {
             boolean containerDragged = false;
             for (int slot : event.getRawSlots()) {
                 Inventory inv = event.getView().getInventory(slot);
-                if (inv != null && !(inv instanceof PlayerInventory)) {
+                if (inv != null && !(inv instanceof PlayerInventory) && !(inv.getHolder() instanceof RentInventoryHolder)) {
                     containerDragged = true;
                     break;
                 }
@@ -2247,6 +2247,12 @@ public class CoinRent extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+        // Ignora se origem ou destino for nosso GUI
+        if (event.getSource().getHolder() instanceof RentInventoryHolder ||
+            event.getDestination().getHolder() instanceof RentInventoryHolder) {
+            event.setCancelled(true);
+            return;
+        }
         ItemStack item = event.getItem();
         if (item != null && isRentalItem(item)) {
             event.setCancelled(true);
@@ -2278,6 +2284,8 @@ public class CoinRent extends JavaPlugin implements Listener {
     public void onInventoryOpen(InventoryOpenEvent event) {
         if (!(event.getPlayer() instanceof Player player)) return;
         Inventory inv = event.getInventory();
+        // Nunca escaneie nossos próprios menus
+        if (inv.getHolder() instanceof RentInventoryHolder) return;
         if (inv.getType() == InventoryType.PLAYER) return;
         scanAndHandleRentalItems(inv, player);
     }
@@ -2542,11 +2550,10 @@ public class CoinRent extends JavaPlugin implements Listener {
         if (current != null && isRentalItem(current)) {
             if (event.getClickedInventory() != null &&
                 event.getClickedInventory().getType() != InventoryType.PLAYER &&
-                event.getClickedInventory().getType() != InventoryType.CRAFTING) {
-                if (!(event.getInventory().getHolder() instanceof RentInventoryHolder)) {
-                    event.setCancelled(true);
-                    player.sendMessage(ChatColor.RED + "You cannot store rented items!");
-                }
+                event.getClickedInventory().getType() != InventoryType.CRAFTING &&
+                !(event.getClickedInventory().getHolder() instanceof RentInventoryHolder)) {
+                event.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "You cannot store rented items!");
             }
             if (event.getInventory().getHolder() instanceof RentInventoryHolder &&
                 event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY) {

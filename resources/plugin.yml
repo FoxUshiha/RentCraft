@@ -1,5 +1,5 @@
 name: CoinRent
-version: 1.6
+version: 1.7
 main: com.foxsrv.coinrent.CoinRent
 api-version: 1.20
 depend: [CoinCard]
